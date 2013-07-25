@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Y'all gon make me lose my mind</title>
+  <script src="js/jquery-1.8.3.min.js"></script>
+  <script src="js/underscore-min.js"></script>
+  <script src="js/three.min.js"></script>
+  <script src="js/EffectComposer.js"></script>
+  <script src="js/RenderPass.js"></script>
+  <script src="js/ShaderPass.js"></script>
+  <script src="js/MaskPass.js"></script>
+  <script src="js/CopyShader.js"></script>
+</head>
+<body>
+
+
+<audio id='song' src="sandstorm.mp3"></audio>
+
+<script id='my-postprocess-vertex-shader' type='x-shader/x-vertex'>
+	varying vec2 vUv;
+
+	void main() {
+	  vUv = uv;
+	  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+	}
+</script>
+
+<script id='my-postprocess-fragment-shader' type='x-shader/x-fragment'>
+varying vec2 vUv;
+uniform sampler2D tDiffuse; // input texture
+
+void main() {
+  vec4 Lcolor = texture2D( tDiffuse, vec2(vUv.x - 0.005, vUv.y) );
+  vec4 Rcolor = texture2D( tDiffuse, vec2(vUv.x + 0.005, vUv.y) );
+  gl_FragColor = (Lcolor + Rcolor) * 0.5;
+}
+</script>
+
+<script>
+/* Function to load external shader files */
+
+var loadFile = function(url) {
+	  var result = null;
+	  $.ajax({
+		url: url,
+		async: false
+	  }).done(function(data) {
+		result = data;
+	  });
+	  return result;
+};
+
+/**
+ * Beat object
+ * Helps convert between seconds and beats
+ */
+var Beat = function(bpm) {
+  this.bpm = bpm;
+};
+
+/**
+ * Convert time to beatTime
+ * BeatTime represents time measured in beats
+ */
+Beat.prototype.toBeatTime = function(t) {
+  return t * this.bpm / 60.0;
+};
+
+/**
+ * Convert time to beat value
+ * Beat value is 0 to 1, hits 1 on the beat
+ */
+Beat.prototype.toBeat = function(t) {
+  return 1.0 - Math.abs(Math.sin(this.toBeatTime(t) * 3.14159));
+};
+
+/**
+ * Game object
+ * The highest level object representing entire game
+ */
+var Game = function() {
+};
+
+/**
+ * Initialize game state
+ */
+Game.prototype.init = function() {
+ 
+  //Set up song playing
+  this.song = $('#song')[0];
+  this.song.loop = true;
+  this.song.play();
+  this.beat = new Beat(136.0);
+  
+  //Set up camera
+  this.camera = new THREE.PerspectiveCamera(100, 4.0/3.0, 1, 10000);
+  this.camera.position.y = -200;
+  this.camera.position.z = 500;
+  
+  //Load in shaders
+  var vertexShaderText = loadFile('shaders/normal.vert');
+  //var plainShaderText = loadFile('shaders/standard.vert');
+  var fragmentShaderText = loadFile('shaders/normal.frag');
+  var groundShaderText = loadFile('shaders/floor.frag');
+  var groundVertText = loadFile('shaders/floor.vert');
+  var expandVertText = loadFile('shaders/expand.vert');
+  var expandFragText = loadFile('shaders/expand.frag');
+  var trippyFragText = loadFile('shaders/trippy.frag');
+  var ballFragText = loadFile('shaders/ball.frag');
+
+  //Create material
+  this.myMaterial = new THREE.ShaderMaterial({
+    uniforms: { 
+      'uTime': { type: 'f', value: 0.0 },
+      'uBeatTime': { type: 'f', value: 0.0 },
+      'uBeat': { type: 'f', value: 0.0 },
+	  'proficiency': { type: 'f', value: 0.5 }
+    },
+    vertexShader: vertexShaderText,
+    fragmentShader: ballFragText
+  });
+  
+  //Ground Material
+  this.groundMaterial = new THREE.ShaderMaterial({
+    uniforms: { 
+      'uTime': { type: 'f', value: 0.0 },
+      'uBeatTime': { type: 'f', value: 0.0 },
+      'uBeat': { type: 'f', value: 0.0 }
+    },
+    vertexShader: groundVertText,
+    fragmentShader: groundShaderText
+  });
+  
+  var redTexture = THREE.ImageUtils.loadTexture('ledtexture.jpg');
+  this.expandMaterial = new THREE.ShaderMaterial({
+    uniforms: { 
+      'tTexture': { type: 't', value: redTexture },
+      'uTime': { type: 'f', value: 0.0 },
+      'uBeatTime': { type: 'f', value: 0.0 },
+      'uBeat': { type: 'f', value: 0.0 }
+    },
+    vertexShader: expandVertText,
+    fragmentShader: trippyFragText
+  });
+  
+  this.scene = new THREE.Scene();
+  //Create Spheres for crowd
+  for(var i = 0; i < 4; i++){
+	for(var j = 0; j < 9; j++){
+		if(i === 0){
+		  this.sphere = new THREE.Mesh(
+            new THREE.SphereGeometry(50, 10, 10),
+            this.myMaterial);
+	  	  this.scene.add(this.sphere);
+		  this.sphere.position.x = -450 + (j*100);
+		  this.sphere.position.y = 450;
+		  this.sphere.position.z = 0;
+		}
+		if(i === 1){
+		  this.sphere = new THREE.Mesh(
+            new THREE.SphereGeometry(50, 10, 10),
+            this.myMaterial);
+	  	  this.scene.add(this.sphere);
+		  this.sphere.position.x = 450;
+		  this.sphere.position.y = -350+(j*100);
+		  this.sphere.position.z = 0;
+		}
+		if(i === 2){
+		  this.sphere = new THREE.Mesh(
+            new THREE.SphereGeometry(50, 10, 10),
+            this.myMaterial);
+	  	  this.scene.add(this.sphere);
+		  this.sphere.position.x = 450 - (j*100);
+		  this.sphere.position.y = -450;
+		  this.sphere.position.z = 0;
+		}
+		if(i === 3){
+		  this.sphere = new THREE.Mesh(
+            new THREE.SphereGeometry(50, 10, 10),
+            this.myMaterial);
+	  	  this.scene.add(this.sphere);
+		  this.sphere.position.x = -450;
+		  this.sphere.position.y = -450 + (j * 100);
+		  this.sphere.position.z = 0;
+		}
+	}
+  }
+
+  // Make a Rhino
+  this.figure = null;
+  var jsonLoader = new THREE.JSONLoader();
+  jsonLoader.load('images/white_rhino.js', function(geometry) {
+		that.figure = new THREE.Mesh(geometry, that.expandMaterial);
+    that.figure.scale.set(80, 80, 80);
+    that.scene.add(that.figure);
+	that.figure.rotation.x = 1.5;
+	that.figure.rotation.y = 1;
+	that.figure.position.x = 20;
+    that.figure.position.y = 0 ;
+    that.figure.position.z = 100;
+  });
+  
+  //Make the floor
+  this.floor = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000),this.groundMaterial);
+  this.floor.position.x=0;
+  this.floor.position.y=0;
+  this.floor.position.z=0;
+  this.scene.add(this.floor);
+  
+  // Render code
+  this.renderer = new THREE.WebGLRenderer({antialias: true});
+  this.renderer.setSize(1600, 900);
+  this.renderer.setClearColor(0x000000, 1.0);
+  document.body.appendChild(this.renderer.domElement);
+
+  // make composer
+  this.composer = new THREE.EffectComposer(this.renderer);
+  this.composer.addPass(new THREE.RenderPass(this.scene, this.camera));
+  var that = this;
+
+	// jQuery keyboard input
+	$('body').keydown( function(e){ 
+		var code = (e.keyCode ? e.keyCode : e.which);
+		if(code == 32){
+		//	console.log(that.myMaterial.uniforms['uBeat'].value);
+			if(that.myMaterial.uniforms['uBeat'].value>=.50){
+				if(that.myMaterial.uniforms['proficiency'].value < 0.9){
+					that.myMaterial.uniforms['proficiency'].value += 0.1;
+				}
+			}
+			else if(that.myMaterial.uniforms['proficiency'].value > 0){
+				that.myMaterial.uniforms['proficiency'].value -= 0.1;
+			}
+		}
+	});
+  
+  
+  
+  
+  // import post process shader code
+  var MyEffectShader = {
+    uniforms: { 'tDiffuse': { type: 't', value: null }},
+    vertexShader: $('#my-postprocess-vertex-shader').text(),
+    fragmentShader: $('#my-postprocess-fragment-shader').text()
+  };
+  var effect = new THREE.ShaderPass(MyEffectShader);
+  effect.renderToScreen = true;
+  this.composer.addPass(effect);
+};
+
+
+
+/**
+ * Render game view for time t
+ */
+Game.prototype.render = function(t) {
+  this.myMaterial.uniforms['uTime'].value = t;
+  this.myMaterial.uniforms['uBeatTime'].value = this.beat.toBeatTime(t);
+  this.myMaterial.uniforms['uBeat'].value = this.beat.toBeat(t);
+  this.groundMaterial.uniforms['uTime'].value = t;
+  this.groundMaterial.uniforms['uBeatTime'].value = this.beat.toBeatTime(t);
+  this.groundMaterial.uniforms['uBeat'].value = this.beat.toBeat(t);
+  this.expandMaterial.uniforms['uTime'].value = t;
+  this.expandMaterial.uniforms['uBeatTime'].value = this.beat.toBeatTime(t);
+  this.expandMaterial.uniforms['uBeat'].value = this.beat.toBeat(t);
+  this.camera.lookAt(this.floor.position);
+  this.camera.position.z += Math.sin(t);
+  this.camera.position.y += Math.sin(t);
+  this.camera.position.x += Math.sin(t);
+  this.composer.render();
+};
+
+/**
+ * Start main game loop
+ */
+Game.prototype.start = function() {
+  var that = this;
+  // Experimentally determined offset to match downbeat
+  var offset = 1.1;
+  var loop = function() {
+    that.render(that.song.currentTime + offset);
+    requestAnimationFrame(loop, that.renderer.domElement);
+  };
+  loop();  
+};
+
+//// 
+
+var game = new Game();
+game.init();
+game.start();
+
+</script>
+
+</body>
+</html>
+
